@@ -1,0 +1,7 @@
+.ipynb_checkpoints
+maxim_tf
+models
+__pycache__
+images
+node_modules
+package-lock.json
