@@ -5,3 +5,8 @@ __pycache__
 images
 node_modules
 package-lock.json
+models
+cloned-code
+.cache
+.vscode
+SCRATCH.ipynb
