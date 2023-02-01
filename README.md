@@ -4,8 +4,8 @@ This repository contains code associated with download and converting the [Maxim
 
 There are two notebooks:
 
-- [Instructions on how to port the original Jax models](Runbook - Jax Models.ipynb).
-- [Instructions on how to port the alternative Tensorflow models](Runbook - TF Models.ipynb).
+- [Runbook - Jax Models.ipynb](Runbook%20-%20Jax%20Models.ipynb) - Instructions on how to port the original Jax models.
+- [Runbook - TF Models.ipynb](Runbook%20-%20TF%20Models.ipynb) - Instructions on how to port the alternative Tensorflow models.
 
 The models are intended for use with [UpscalerJS](http://github.com/thekevinscott/UpscalerJS/).
 
