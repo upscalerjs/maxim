@@ -1,42 +1,65 @@
 import json
-import shutil
+import os
+import flax
+from skimage.metrics import structural_similarity
 import tempfile
 import matplotlib.pyplot as plt
 from PIL import Image
-import tensorflow as tf
 from tensorflow import keras
 import pathlib
+import base64
 import subprocess
 import numpy as np
-import sys
-sys.path.append('./maxim_tf')
-from maxim_tf.maxim.configs import MAXIM_CONFIGS
-from maxim_tf.convert_to_tf import _MODEL_VARIANT_DICT, port_jax_params
 
+import tensorflow as tf
+tf.config.experimental.set_visible_devices([], 'GPU')
+
+CACHE_DIR = pathlib.Path('.cache')
+CACHE_DIR.mkdir(exist_ok=True, parents=True)
+
+def get_cache_name(*parts):
+    return base64.b64encode(' '.join(parts).encode("ascii")).decode("utf-8")
 
 def do(cmd, cwd='./'):
     cmd = [str(part) for part in cmd if part]
-    # print('Running shell command:', ' '.join(cmd))
+    print('Running shell command:', ' '.join(cmd))
     try:
         return subprocess.check_output(cmd, cwd=cwd).decode()
     except subprocess.CalledProcessError as e:
         raise Exception(e.output.decode())
         
-def run_node(model, image_path):
-    with tempfile.NamedTemporaryFile() as f:
-        output = do([
-            'node',
-            './node.js',
-            model / 'model.json',
-            image_path,
-            f.name,
-        ])
-        print(output)
-        
-        loaded = json.load(f)
-        shape = loaded['shape']
-        data = np.array(loaded['data']).reshape(shape)
-        return tf.convert_to_tensor(data, dtype=tf.float32)
+def run_node(model, image_path, use_cache = True):
+    cache_name = get_cache_name(str(model), image_path)
+    if os.path.exists(CACHE_DIR / cache_name) is False or use_cache is False:
+        with tempfile.NamedTemporaryFile() as f:
+            output = do([
+                'node',
+                './node/index.js',
+                os.path.join(os.path.dirname(__file__), str(model), 'model.json'),
+                image_path,
+                f.name,
+            ])
+            print(output)
+            
+            loaded = json.load(f)
+            shape = loaded['shape']
+            data = np.array(loaded['data']).reshape(shape)
+            result = tf.convert_to_tensor(data, dtype=tf.float32)
+        with open(CACHE_DIR / cache_name, 'wb') as f:
+            result.numpy().tofile(f)
+    else:
+        with open(CACHE_DIR / cache_name, 'wb') as f:
+            result = np.load(f)
+    return result
+
+def run_jax_model(model, params, cache_name, preprocessed_image):
+    cache_path = CACHE_DIR / f'{cache_name}.npy'
+    if os.path.exists(cache_path) is False:
+        result = model.apply(params, preprocessed_image)
+        np.save(cache_path, np.array(result))
+    else:
+        result = np.load(cache_path)
+    return result
 
 def convert_to_tfjs(input, output, quantization=''):
     do([
@@ -44,15 +67,15 @@ def convert_to_tfjs(input, output, quantization=''):
         '--input_format=tf_saved_model',
         '--output_format=tfjs_graph_model',
         '--skip_op_check',
-        quantization,
+        quantization or '',
         input,
         output
     ])
 
-def download_python_model(task, ckpt_path, output):
+def download_keras_model(task, ckpt_path, output):
     do([
         'python3',
-        'download_python_model.py',
+        'download_keras_model.py',
         '--task',
         task,
         '--ckpt_path',
@@ -105,15 +128,43 @@ def download_and_save_image(output_path, image_url):
     im.save(output_path)
     return input_img
 
-def evaluate_models(python_model_path, tfjs_model_path, image_path, sample_image_url):
-    preprocessed_image = download_and_save_image(image_path, sample_image_url)
-    python_model = tf.keras.models.load_model(python_model_path)
-    python_prediction = python_model.predict(preprocessed_image)
-    tfjs_prediction = run_node(tfjs_model_path, image_path)
+def compare_images(python_prediction, tfjs_prediction, image_path):
+    try:
+        print('Python output')
+        if len(python_prediction.shape) == 4:
+            python_prediction = np.squeeze(python_prediction)
+        python_img = np.array((np.clip(python_prediction, 0.0, 1.0)).astype(np.float32))
+        show_image(image_path, python_img)
 
-    print('Python output')
-    show_image(image_path, np.array((np.clip(python_prediction, 0.0, 1.0)).astype(np.float32)))
-    print('Node output')
-    show_image(image_path, np.array((np.clip(tfjs_prediction, 0.0, 1.0)).astype(np.float32)))
+        print('Node output')
+        if len(tfjs_prediction.shape) == 4:
+            tfjs_prediction = np.squeeze(tfjs_prediction)
+        tfjs_img = np.array((np.clip(tfjs_prediction, 0.0, 1.0)).astype(np.float32))
+        show_image(image_path, tfjs_img)
 
-    return python_prediction, tfjs_prediction
+        ssim = structural_similarity(python_img, tfjs_img, channel_axis = -1)
+
+        print(f'SSIM: {ssim}')
+        return (python_prediction, python_img), (tfjs_prediction, tfjs_img), ssim
+    except Exception as e:
+        print('Failed SSIM', e)
+        pass
+
+    return (python_prediction, None), (tfjs_prediction, None), None
+
+def evaluate_models(python_model_path, tfjs_model_path, sample_image_url):
+    with tempfile.NamedTemporaryFile(suffix='.png') as f:
+        preprocessed_image = download_and_save_image(f.name, sample_image_url)
+        python_model = tf.keras.models.load_model(python_model_path)
+        python_prediction = python_model.predict(preprocessed_image)
+        tfjs_prediction = run_node(tfjs_model_path, f.name)
+        return compare_images(python_prediction, tfjs_prediction, f.name)
+
+
+def evaluate_jax_models(model, params, tfjs_model_path, sample_image_url, ckpt_path):
+    with tempfile.NamedTemporaryFile(suffix='.png') as f:
+        preprocessed_image = download_and_save_image(f.name, sample_image_url)
+        tfjs_prediction = run_node(tfjs_model_path, f.name)
+        cache_name = get_cache_name(ckpt_path, sample_image_url)
+        python_prediction = run_jax_model(model, params, cache_name, preprocessed_image.numpy())
+        return compare_images(python_prediction, tfjs_prediction, f.name)
