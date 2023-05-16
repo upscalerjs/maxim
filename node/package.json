@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "author": "Kevin Scott",
   "dependencies": {
-    "@tensorflow/tfjs-node": "^4.2.0"
+    "@tensorflow/tfjs-node": "^4.5.0"
   }
 }

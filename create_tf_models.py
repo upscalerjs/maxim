@@ -7,13 +7,13 @@ from utils import download_keras_model, convert_to_tfjs, evaluate_models
 import tensorflow as tf
 tf.config.experimental.set_visible_devices([], 'GPU')
 
-def create_tf_models(task, dataset, python_output_folder, tfjs_output_folder, quantization_settings):
+def create_tf_models(task, dataset, python_output_folder, tfjs_output_folder, quantization_settings, input_resolution=None):
     checkpoint_path = f'gs://gresearch/maxim/ckpt/{task}/{dataset}/checkpoint.npz' # path to the checkpoint on google storage
     
     # Download a MAXIM model and save it locally, if we have not already done so
     if os.path.exists(python_output_folder) is False:
         print(f'Creating a python model for task "{task}" and dataset "{dataset}"')
-        download_keras_model(task, checkpoint_path, python_output_folder)
+        download_keras_model(task, checkpoint_path, python_output_folder, input_resolution)
         
     # Convert the Python model into a TFJS model, if we have not already done so
     if os.path.exists(f'{tfjs_output_folder}/model.json') is False:
@@ -61,6 +61,12 @@ def parse_args():
         type=str,
     )
     parser.add_argument(
+        "-i",
+        "--input_resolution",
+        type=int,
+        help="Optional input resolution",
+    )
+    parser.add_argument(
         '-q',
         '--quantization_settings',
         type=str,
@@ -69,5 +75,5 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    create_tf_models(args.task, args.dataset, args.python_output, args.tfjs_output, args.quantization_settings)
+    create_tf_models(args.task, args.dataset, args.python_output, args.tfjs_output, args.quantization_settings, input_resolution = args.input_resolution)
 

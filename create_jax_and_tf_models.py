@@ -1,24 +1,47 @@
-import os
+import pathlib
 import argparse
 import sys
 sys.path.append('./maxim')
-from jax_model import get_jax_model, convert_jax_to_tfjs
-from utils import evaluate_jax_models
+from jax_model import get_quantization_dtype_map, Wrapper, Params
+from fixing_ensure_shapes import remove_ensure_shape_nodes_from_model_json
+from typing import Optional, Literal
 import tensorflow as tf
+import tensorflowjs as tfjs
 tf.config.experimental.set_visible_devices([], 'GPU')
 
-def create_jax_and_tf_models(task, dataset, tfjs_output_folder, quantization_settings):
-    checkpoint_path = f'gs://gresearch/maxim/ckpt/{task}/{dataset}/checkpoint.npz' # path to the checkpoint on google storage
+IMAGE_DIVISIBLE_BY = 64
 
-    print(f'Creating a jax model for task "{task}" and dataset "{dataset}"')
-    jax_model, params = get_jax_model(task, checkpoint_path)
-
+def create_jax_and_tf_models(
+    jax_model: Wrapper, 
+    params: Params, 
+    tfjs_output_folder: str | pathlib.Path, 
+    quantization_settings: Optional[Literal['float16', 'uint16', 'uint8']], 
+    input_size: Optional[int]=None,
+    remove_ensure_shape_nodes=True,
+):
     # Convert the Python model into a TFJS model, if we have not already done so
-    if os.path.exists(f'{tfjs_output_folder}/model.json') is False:
-        print(f'Creating a Tensorflow.js model for task "{task}" and dataset "{dataset}" at path {tfjs_output_folder}')
-        convert_jax_to_tfjs(jax_model, tfjs_output_folder, params, quantization_settings)
+        # convert_jax_to_tfjs(tf_output_folder, jax_model, tfjs_output_folder, params, quantization_settings, use_cache=use_cache)
+    apply_fn=jax_model.apply
+    if input_size is None:
+        input_signatures=[tf.TensorSpec([None, None, None, 3], tf.float32)]
+        polymorphic_shapes=[f"(b, h * {IMAGE_DIVISIBLE_BY}, w * {IMAGE_DIVISIBLE_BY}, ...)"]
     else:
-        print(f'Tensorflow.js model already exists for task "{task}" and dataset "{dataset}" at path {tfjs_output_folder}')
+        input_signatures=[tf.TensorSpec([None, input_size, input_size, 3], tf.float32)]
+        polymorphic_shapes=[f"(b, ...)"]
+
+    tfjs_output_folder = str(tfjs_output_folder)
+
+    tfjs.converters.convert_jax(
+        apply_fn,
+        params, 
+        model_dir=tfjs_output_folder, 
+        input_signatures=input_signatures, 
+        polymorphic_shapes=polymorphic_shapes,
+        quantization_dtype_map=get_quantization_dtype_map(quantization_settings),
+    )
+
+    if remove_ensure_shape_nodes:
+        remove_ensure_shape_nodes_from_model_json(f'{tfjs_output_folder}/model.json')
         
 
 def parse_args():
@@ -42,6 +65,11 @@ def parse_args():
         type=str,
     )
     parser.add_argument(
+        '-f',
+        '--tf_output',
+        type=str,
+    )
+    parser.add_argument(
         '-q',
         '--quantization_settings',
         type=str,
@@ -50,4 +78,4 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    create_jax_and_tf_models(args.task, args.dataset, args.output, args.quantization_settings)
+    create_jax_and_tf_models(args.task, args.dataset, args.tf_output, args.output, args.quantization_settings)
