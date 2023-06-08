@@ -3,7 +3,7 @@ import argparse
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'cloned-code/maxim_tf'))
-from utils import download_keras_model, convert_to_tfjs, evaluate_models
+from utils import download_keras_model, convert_to_tfjs
 import tensorflow as tf
 tf.config.experimental.set_visible_devices([], 'GPU')
 
@@ -17,7 +17,7 @@ def create_tf_models(task, dataset, python_output_folder, tfjs_output_folder, qu
         
     # Convert the Python model into a TFJS model, if we have not already done so
     if os.path.exists(f'{tfjs_output_folder}/model.json') is False:
-        print(f'Creating a Tensorflow.js model for task "{task}" and dataset "{dataset}"')
+        print(f'Creating a Tensorflow.js model for task "{task}" and dataset "{dataset}" and quant {quantization_settings}')
         if quantization_settings == '"float16"':
             quantization_settings = '--quantize_float16=*'
         elif quantization_settings == '"uint16"':

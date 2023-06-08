@@ -11,7 +11,7 @@ tf.config.experimental.set_visible_devices([], 'GPU')
 
 IMAGE_DIVISIBLE_BY = 64
 
-def create_jax_and_tf_models(
+def create_tfjs_models_from_jax(
     jax_model: Wrapper, 
     params: Params, 
     tfjs_output_folder: str | pathlib.Path, 
@@ -19,8 +19,6 @@ def create_jax_and_tf_models(
     input_size: Optional[int]=None,
     remove_ensure_shape_nodes=True,
 ):
-    # Convert the Python model into a TFJS model, if we have not already done so
-        # convert_jax_to_tfjs(tf_output_folder, jax_model, tfjs_output_folder, params, quantization_settings, use_cache=use_cache)
     apply_fn=jax_model.apply
     if input_size is None:
         input_signatures=[tf.TensorSpec([None, None, None, 3], tf.float32)]
