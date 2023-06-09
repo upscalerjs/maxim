@@ -1,0 +1,7 @@
+tmp
+node
+models-backup
+__pycache__
+.vscode
+.ipynb_checkpoints
+.cache

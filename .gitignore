@@ -10,3 +10,10 @@ cloned-code
 .cache
 .vscode
 SCRATCH.ipynb
+jax-modified
+notebooks
+sample-image.png
+test_to_build_tf_model_from_jax.py
+tmp
+env
+models.zip
